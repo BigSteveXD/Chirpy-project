@@ -1,22 +1,16 @@
 package main
 
 import (
-	//"fmt"
 	"net/http"
 )
 
 func main() {
-	//fmt.Println("hello")
-	
 	//new http.ServeMux
-	//myServeMux = http.ServeMux("localhost:8080")
 	myServeMux := http.NewServeMux()
 
-	//create http.Server
-	//myServer = new http.Server()
+	myServeMux.Handle("/", http.FileServer(http.Dir(".")))
 
 	//custom server
-	//
 	myServer := &http.Server{
 		Addr: ":8080",
 		Handler: myServeMux,
@@ -26,5 +20,4 @@ func main() {
 	}
 	//log.Fatal(myServer.ListenAndServe())
 	myServer.ListenAndServe()
-	//
 }
