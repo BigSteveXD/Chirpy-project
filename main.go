@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"net/http"
 )
 
@@ -8,7 +9,14 @@ func main() {
 	//new http.ServeMux
 	myServeMux := http.NewServeMux()
 
-	myServeMux.Handle("/", http.FileServer(http.Dir(".")))
+	myServeMux.Handle("/app/", http.StripPrefix("/app", http.FileServer(http.Dir("."))))
+
+	//readiness endpoint
+	myServeMux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request){
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
 
 	//custom server
 	myServer := &http.Server{
@@ -18,6 +26,5 @@ func main() {
 		//WriteTimeout: 10 * time.Second,
 		//MaxHeaderBytes: 1 << 20,
 	}
-	//log.Fatal(myServer.ListenAndServe())
-	myServer.ListenAndServe()
+	log.Fatal(myServer.ListenAndServe())
 }
