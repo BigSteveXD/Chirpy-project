@@ -37,11 +37,11 @@ func main() {
 
 	myServeMux.Handle("/app/", apiCfg.middlewareMetricsInc( http.StripPrefix("/app", http.FileServer(http.Dir("."))) ))//fileserver is a handler
 
-	myServeMux.Handle("/metrics", http.HandlerFunc(apiCfg.countHits))//handle the wrap(handler)
-	myServeMux.Handle("/reset", http.HandlerFunc(apiCfg.resetHits))
+	myServeMux.Handle("GET /api/metrics", http.HandlerFunc(apiCfg.countHits))//handle the wrap(handler)
+	myServeMux.Handle("POST /api/reset", http.HandlerFunc(apiCfg.resetHits))
 
 	//readiness endpoint
-	myServeMux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request){
+	myServeMux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request){
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
