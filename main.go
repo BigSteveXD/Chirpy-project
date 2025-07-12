@@ -20,9 +20,16 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 
 func (cfg *apiConfig) countHits(w http.ResponseWriter, r *http.Request) {
 	hits := cfg.fileserverHits.Load()
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")//text/plain
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Hits: %d", hits)
+	//fmt.Fprintf(w, "Hits: %d", hits)//change?
+	//w.Write([]byte(fmt.Sprintf("Hits: %d", hits)))
+	fmt.Fprintf(w, `<html>
+  <body>
+    <h1>Welcome, Chirpy Admin</h1>
+    <p>Chirpy has been visited %d times!</p>
+  </body>
+</html>`, hits)
 }
 
 func (cfg *apiConfig) resetHits(w http.ResponseWriter, r *http.Request) {
@@ -37,8 +44,8 @@ func main() {
 
 	myServeMux.Handle("/app/", apiCfg.middlewareMetricsInc( http.StripPrefix("/app", http.FileServer(http.Dir("."))) ))//fileserver is a handler
 
-	myServeMux.Handle("GET /api/metrics", http.HandlerFunc(apiCfg.countHits))//handle the wrap(handler)
-	myServeMux.Handle("POST /api/reset", http.HandlerFunc(apiCfg.resetHits))
+	myServeMux.Handle("GET /admin/metrics", http.HandlerFunc(apiCfg.countHits))//handle the wrap(handler)
+	myServeMux.Handle("POST /admin/reset", http.HandlerFunc(apiCfg.resetHits))
 
 	//readiness endpoint
 	myServeMux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request){
