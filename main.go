@@ -1,9 +1,11 @@
 package main
 
 import (
-	//_ "github.com/lib/pq"
-	//"github.com/joho/godotenv"
-	//"github.com/BigSteveXD/Chirpy-project/internal/database"
+	_ "github.com/lib/pq"
+	"github.com/joho/godotenv"
+	"os"
+	"database/sql"
+	"github.com/BigSteveXD/Chirpy-project/internal/database"
 	"log"
 	"net/http"
 	"sync/atomic"
@@ -15,7 +17,7 @@ import (
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
-	//myQueries *Queries//myQueries *database.Queries//database?
+	myQueries *database.Queries//database?
 }
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -112,10 +114,13 @@ func replaceBadWords(words interface{}) string {//request
 }
 
 func main() {
-	//godotenv.Load()//
-	//dbURL := os.Getenv("DB_URL")//
-	//db, err := sql.Open("postgres", dbURL)//	
-	//dbQueries := database.New(db)//
+	godotenv.Load()//if empty default loads .env from current path
+	dbURL := os.Getenv("DB_URL")//
+	db, err := sql.Open("postgres", dbURL)//
+	if err != nil {
+		fmt.Println(err)
+	}
+	dbQueries := database.New(db)//
 
 	//new http.ServeMux
 	myServeMux := http.NewServeMux()
@@ -128,7 +133,7 @@ func main() {
 	*/
 	apiCfg := apiConfig{
 		fileserverHits: atomic.Int32{},
-		//&myQueries: dbQueries,//dbQueries := database.New(db)
+		myQueries: dbQueries,//dbQueries := database.New(db)
 	}
 
 	myServeMux.Handle("/app/", apiCfg.middlewareMetricsInc( http.StripPrefix("/app", http.FileServer(http.Dir("."))) ))//fileserver is a handler
