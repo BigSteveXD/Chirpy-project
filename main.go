@@ -19,7 +19,7 @@ import (
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
-	myQueries *database.Queries
+	db *database.Queries
 	platform string
 }
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -50,7 +50,7 @@ func (cfg *apiConfig) resetHits(w http.ResponseWriter, r *http.Request) {
 	cfg.fileserverHits.Store(0)
 
 	//delete all users in database(not schema)
-	err := cfg.myQueries.Reset(r.Context())
+	err := cfg.db.Reset(r.Context())
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("reset failed: " + err.Error()))
@@ -60,16 +60,19 @@ func (cfg *apiConfig) resetHits(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("database reset"))
 }
 
+
 type requestBody struct {
 	Body string `json:"body"`
+	UserID uuid.UUID `json:"user_id"`//User_ID
 }
 type responseBody struct {
-	Cleaned_body string `json:"cleaned_body"`//Body string `json:"body"`
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body string `json:"body"`
+	User_ID uuid.UUID `json:"user_id"`
 }
-type validBody struct {
-	Valid bool `json:"valid"`
-}
-func handleHTTP(w http.ResponseWriter, r *http.Request){
+func (cfg *apiConfig) handleChirps(w http.ResponseWriter, r *http.Request){
     defer r.Body.Close()
 	
     dat, err := io.ReadAll(r.Body)
@@ -89,10 +92,23 @@ func handleHTTP(w http.ResponseWriter, r *http.Request){
     }
 
 	cleaned_body := replaceBadWords(params)
-	fmt.Println(cleaned_body)
+	//fmt.Println(cleaned_body)
+	params.Body = cleaned_body
+
+	//create chirp in database
+	type response struct {
+		responseBody
+	}
+	myChirp, err := cfg.db.CreateChirp(r.Context(), database.CreateChirpParams{params.Body, params.UserID})//sql.NullString
     
-	err = respondWithJSON(w, 200, responseBody{
-		Cleaned_body: cleaned_body,
+	err = respondWithJSON(w, 201, response{
+		responseBody: responseBody{
+			ID: myChirp.ID,
+			CreatedAt: myChirp.CreatedAt,
+			UpdatedAt: myChirp.UpdatedAt,
+			Body: myChirp.Body,
+			User_ID: params.UserID,//myChirp.User_ID,
+		},
     })
 	
 	if err != nil {
@@ -128,7 +144,6 @@ func replaceBadWords(words interface{}) string {
 	return cleaned
 }
 
-
 func (cfg *apiConfig) handleUsers(w http.ResponseWriter, r *http.Request) {
 	type email struct {
 		Email string `json:"email"`
@@ -139,26 +154,31 @@ func (cfg *apiConfig) handleUsers(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt time.Time `json:"updated_at"`
 		Email     string    `json:"email"`
 	}
+	type response struct {
+		user
+	}
 	defer r.Body.Close()
 	//accept email as json in request body
 	dat, err := io.ReadAll(r.Body)
 	if err != nil {
 		respondWithError(w, 500, "couldn't read request")
+		return
 	}
 	params := email{}
 	err = json.Unmarshal(dat, &params)
 
 	//create user
-	//user, err := cfg.db.CreateUser(r.Context(), params.Email)
-	myUser, err := cfg.myQueries.CreateUser(r.Context(), params.Email)
+	myUser, err := cfg.db.CreateUser(r.Context(), params.Email)
 
 	//return users ID email timestamps in response body
 	//respondWithJSON(w, 201, "Created")
-	err = respondWithJSON(w, 201, user{
-		ID: myUser.ID,
-		CreatedAt: myUser.CreatedAt,
-		UpdatedAt: myUser.UpdatedAt,
-		Email: params.Email,//myUser.Email
+	err = respondWithJSON(w, 201, response{
+		user: user{
+			ID: myUser.ID,
+			CreatedAt: myUser.CreatedAt,
+			UpdatedAt: myUser.UpdatedAt,
+			Email: myUser.Email,//params.Email,
+		},
     })
 	
 	if err != nil {
@@ -171,28 +191,28 @@ func (cfg *apiConfig) handleUsers(w http.ResponseWriter, r *http.Request) {
 func main() {
 	godotenv.Load()//if empty default loads .env from current path
 	dbURL := os.Getenv("DB_URL")
-	db, err := sql.Open("postgres", dbURL)
+	dbConn, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		fmt.Println(err)
 	}
-	dbQueries := database.New(db)
+	dbQueries := database.New(dbConn)
 
 	plat := os.Getenv("PLATFORM")
 
 	apiCfg := apiConfig{
 		fileserverHits: atomic.Int32{},
-		myQueries: dbQueries,
+		db: dbQueries,
 		platform: plat,
 	}
 
 	myServeMux := http.NewServeMux()
 
-	myServeMux.Handle("/app/", apiCfg.middlewareMetricsInc( http.StripPrefix("/app", http.FileServer(http.Dir("."))) ))//fileserver is a handler
+	myServeMux.Handle("/app/", apiCfg.middlewareMetricsInc( http.StripPrefix("/app", http.FileServer(http.Dir("."))) ))
 
 	myServeMux.Handle("GET /admin/metrics", http.HandlerFunc(apiCfg.countHits))
 	myServeMux.Handle("POST /admin/reset", http.HandlerFunc(apiCfg.resetHits))
 
-	myServeMux.Handle("POST /api/validate_chirp", http.HandlerFunc(handleHTTP))
+	myServeMux.Handle("POST /api/chirps", http.HandlerFunc(apiCfg.handleChirps))
 
 	myServeMux.Handle("POST /api/users", http.HandlerFunc(apiCfg.handleUsers))
 
@@ -210,3 +230,4 @@ func main() {
 	}
 	log.Fatal(myServer.ListenAndServe())
 }
+

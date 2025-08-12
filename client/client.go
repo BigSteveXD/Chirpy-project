@@ -7,12 +7,11 @@ import (
 	//"io"
 	"bytes"
 	//"log"
+	"time"
+	"github.com/google/uuid"
 )
 
-type parameters struct {//use for request //can also use for response or use another struct
-	Body string `json:"body"`
-}
-type requestBody struct {
+type requestBody struct {//parameters
 	Body string `json:"body"`
 }
 type responseBody struct {
@@ -30,15 +29,34 @@ type User struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
 }
+type userRequest struct {//requestBody
+	Body string `json:"body"`
+	UserID uuid.UUID `json:"user_id"`//User_ID
+}
+type userResponse struct {//responseBody
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body string `json:"body"`
+	User_ID uuid.UUID `json:"user_id"`
+}
 
 func main(){
 	url := "http://localhost:8080/api/validate_chirp"
 
-	//myRequest := requestBody{
-		//Body:`This is a kerfuffle opinion I need to share with the world`,
-	//}
+	/*
+	myRequest := requestBody{
+		Body:`This is a kerfuffle opinion I need to share with the world`,
+	}
+	*/
+	/*
 	myRequest := emailBody{
-		Email: "mloneusk@example.co"
+		Email: "mloneusk@example.co",
+	}
+	*/
+	myRequest := userRequest{
+		Body: "If you're committed enough, you can make any story work.",
+		UserID: uuid.New(),//uuid.NewString(),//"123e4567-e89b-12d3-a456-426614174000",//`${userID1}`,
 	}
 
 	buff := new(bytes.Buffer)
@@ -55,24 +73,43 @@ func main(){
 	}
 	defer resp.Body.Close()
 
-	//var respData struct {
-		//Body string `json:"body"`
-	//}
+	/*
+	var respData struct {
+		Body string `json:"body"`
+	}
+	*/
 	//var temp responseBody
-	temp := User{}//responseBody{}
+	//temp := User{}//responseBody{}
+	/*
+	type response struct{
+		User
+	}
+	*/
+	type response struct{
+		userResponse
+	}
+
+	//
+	temp := response{}//response
 	err = json.NewDecoder(resp.Body).Decode(&temp)//&parameters//&respData
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
+	//
+	//var temp userResponse = json.Unmarshal([]byte(resp.Body), &temp)
 
 	//fmt.Println(resp)//resp.Body
 	//fmt.Println(resp.Body)//resp.Body
 	//fmt.Println(resp.Body)
 	//fmt.Println(temp.Cleaned_body)
+	/*
+	fmt.Println(temp.User.ID)
+	fmt.Println(temp.User.CreatedAt)
+	fmt.Println(temp.User.UpdatedAt)
+	fmt.Println(temp.User.Email)
+	*/
 	
-	fmt.Println(temp.ID)
-	fmt.Println(temp.CreatedAt)
-	fmt.Println(temp.UpdatedAt)
-	fmt.Println(temp.Email)
+	//fmt.Println(temp.userResponse.User_ID)\
+	//fmt.Println(temp.User_ID)
 }
