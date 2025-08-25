@@ -187,6 +187,37 @@ func (cfg *apiConfig) handleUsers(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type response struct {
+		responseBody
+	}
+func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
+	var outputs []response
+
+	allChirps, err := cfg.db.GetAllChirps(r.Context())
+	if err != nil {
+		respondWithError(w, 500, "failed to get chirps")//500 server error response
+	}
+	for _, chirp := range allChirps{
+		outputs = append(outputs, response{
+			responseBody: responseBody{ 
+				ID: chirp.ID,
+				CreatedAt: chirp.CreatedAt,
+				UpdatedAt: chirp.UpdatedAt,
+				Body: chirp.Body,
+				User_ID: chirp.UserID,
+			},
+    	})
+	}
+
+	temp, err := json.Marshal(outputs)
+	if err != nil {
+		respondWithError(w, 500, "couldn't marshal payload")
+    }
+	w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(200)//code
+	w.Write([]byte(temp))
+}
+
 
 func main() {
 	godotenv.Load()//if empty default loads .env from current path
@@ -215,6 +246,8 @@ func main() {
 	myServeMux.Handle("POST /api/chirps", http.HandlerFunc(apiCfg.handleChirps))
 
 	myServeMux.Handle("POST /api/users", http.HandlerFunc(apiCfg.handleUsers))
+
+	myServeMux.Handle("GET /api/chirps", http.HandlerFunc(apiCfg.getChirps))
 
 	//readiness endpoint
 	myServeMux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request){
