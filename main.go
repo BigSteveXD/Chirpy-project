@@ -188,8 +188,8 @@ func (cfg *apiConfig) handleUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 type response struct {
-		responseBody
-	}
+	responseBody
+}
 func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
 	var outputs []response
 
@@ -216,6 +216,27 @@ func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
     w.WriteHeader(200)//code
 	w.Write([]byte(temp))
+}
+func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request, chirpID string) {
+	temp, err := uuid.Parse(chirpID)
+	if err != nil {
+		respondWithError(w, 404, "failed to parse uuid from string")
+		return
+	}
+	oneChirp, err := cfg.db.GetOneChirp(r.Context(), temp)
+	if err != nil {
+		respondWithError(w, 404, "failed to get chirp")
+		return
+	}
+	respondWithJSON(w, 200, response{
+		responseBody: responseBody{ 
+			ID: oneChirp.ID,
+			CreatedAt: oneChirp.CreatedAt,
+			UpdatedAt: oneChirp.UpdatedAt,
+			Body: oneChirp.Body,
+			User_ID: oneChirp.UserID,
+		},
+    })
 }
 
 
@@ -248,6 +269,10 @@ func main() {
 	myServeMux.Handle("POST /api/users", http.HandlerFunc(apiCfg.handleUsers))
 
 	myServeMux.Handle("GET /api/chirps", http.HandlerFunc(apiCfg.getChirps))
+	myServeMux.HandleFunc("GET /api/chirps/{chirpID}", func(w http.ResponseWriter, r *http.Request){
+		id := r.PathValue("chirpID")
+		apiCfg.getChirp(w, r, id)
+	})
 
 	//readiness endpoint
 	myServeMux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request){
