@@ -6,6 +6,7 @@ import (
 	"os"
 	"database/sql"
 	"github.com/BigSteveXD/Chirpy-project/internal/database"
+	"github.com/BigSteveXD/Chirpy-project/internal/auth"
 	"time"
 	"github.com/google/uuid"
 	"log"
@@ -146,6 +147,60 @@ func replaceBadWords(words interface{}) string {
 
 func (cfg *apiConfig) handleUsers(w http.ResponseWriter, r *http.Request) {
 	type email struct {
+		Password string `json:"password"`
+		Email string `json:"email"`
+	}
+	type user struct {
+		ID        uuid.UUID `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+		Email     string    `json:"email"`
+	}
+	type response struct {
+		user
+	}
+
+	defer r.Body.Close()
+	//accept email as json in request body
+	dat, err := io.ReadAll(r.Body)
+	if err != nil {
+		respondWithError(w, 500, "couldn't read request")
+		return
+	}
+
+	params := email{}
+	err = json.Unmarshal(dat, &params)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "couldn't unmarshal params")
+		return
+	}
+
+	//hash password then create user
+	hashPass, err := auth.HashPassword(params.Password)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "couldn't respond with json")
+		return
+	}
+	
+	params.Password = hashPass
+	myUser, err := cfg.db.CreateUser(r.Context(), database.CreateUserParams{params.Password, params.Email})
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "couldn't respond with json")
+	}
+
+	//return users ID, email, and timestamps in response body
+	respondWithJSON(w, http.StatusCreated, response{//201
+		user: user{
+			ID: myUser.ID,
+			CreatedAt: myUser.CreatedAt,
+			UpdatedAt: myUser.UpdatedAt,
+			Email: myUser.Email,
+		},
+    })
+}
+func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
+	type email struct {
+		Password string `json:"password"`
 		Email string `json:"email"`
 	}
 	type user struct {
@@ -166,23 +221,23 @@ func (cfg *apiConfig) handleUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	params := email{}
 	err = json.Unmarshal(dat, &params)
-
-	//create user
-	myUser, err := cfg.db.CreateUser(r.Context(), params.Email)
-
-	//return users ID email timestamps in response body
-	//respondWithJSON(w, 201, "Created")
-	err = respondWithJSON(w, 201, response{
-		user: user{
-			ID: myUser.ID,
-			CreatedAt: myUser.CreatedAt,
-			UpdatedAt: myUser.UpdatedAt,
-			Email: myUser.Email,//params.Email,
-		},
-    })
-	
+	oneUser, err := cfg.db.GetOneUser(r.Context(), params.Email)
 	if err != nil {
-		respondWithError(w, 500, "couldn't respond with json")
+		respondWithError(w, 401, "Unauthorized")
+		return
+	}
+	passCheck, err := auth.CheckPasswordHash(params.Password, oneUser.HashedPassword)
+	if passCheck {
+		respondWithJSON(w, http.StatusOK, response{//201
+		user: user{
+			ID: oneUser.ID,
+			CreatedAt: oneUser.CreatedAt,
+			UpdatedAt: oneUser.UpdatedAt,
+			Email: oneUser.Email,
+		},
+    	})
+	}else{
+		respondWithError(w, 401, "Unauthorized")
 		return
 	}
 }
@@ -267,6 +322,9 @@ func main() {
 	myServeMux.Handle("POST /api/chirps", http.HandlerFunc(apiCfg.handleChirps))
 
 	myServeMux.Handle("POST /api/users", http.HandlerFunc(apiCfg.handleUsers))
+	myServeMux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request){
+		apiCfg.handleLogin(w, r)
+	})
 
 	myServeMux.Handle("GET /api/chirps", http.HandlerFunc(apiCfg.getChirps))
 	myServeMux.HandleFunc("GET /api/chirps/{chirpID}", func(w http.ResponseWriter, r *http.Request){
