@@ -22,6 +22,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	db *database.Queries
 	platform string
+	secret string
 }
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +65,7 @@ func (cfg *apiConfig) resetHits(w http.ResponseWriter, r *http.Request) {
 
 type requestBody struct {
 	Body string `json:"body"`
-	UserID uuid.UUID `json:"user_id"`//User_ID
+	UserID uuid.UUID `json:"user_id"`//User_ID //Authorization
 }
 type responseBody struct {
 	ID        uuid.UUID `json:"id"`
@@ -81,16 +82,29 @@ func (cfg *apiConfig) handleChirps(w http.ResponseWriter, r *http.Request){
         respondWithError(w, 500, "couldn't read request")
         return
     }
-	if len(dat) > 140 {
-		respondWithError(w, 400, "Chirp is too long")
-		return
-	}
     params := requestBody{}
     err = json.Unmarshal(dat, &params)
     if err != nil {
         respondWithError(w, 500, "couldn't unmarshal parameters")
         return
     }
+	if len(params.Body) > 140 {
+		respondWithError(w, 400, "Chirp is too long")
+		return
+	}
+
+	bearerString, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "couldn't find JWT")//401
+		return
+	}
+	
+	userUUID, err := auth.ValidateJWT(bearerString, cfg.secret)//tokenString, tokenSecret
+	if err != nil {
+		respondWithError(w, 401, "couldn't validate JWT")
+		return
+	}
+	
 
 	cleaned_body := replaceBadWords(params)
 	//fmt.Println(cleaned_body)
@@ -100,7 +114,7 @@ func (cfg *apiConfig) handleChirps(w http.ResponseWriter, r *http.Request){
 	type response struct {
 		responseBody
 	}
-	myChirp, err := cfg.db.CreateChirp(r.Context(), database.CreateChirpParams{params.Body, params.UserID})//sql.NullString
+	myChirp, err := cfg.db.CreateChirp(r.Context(), database.CreateChirpParams{params.Body, userUUID})//sql.NullString //params.Body, params.UserID
     
 	err = respondWithJSON(w, 201, response{
 		responseBody: responseBody{
@@ -108,7 +122,7 @@ func (cfg *apiConfig) handleChirps(w http.ResponseWriter, r *http.Request){
 			CreatedAt: myChirp.CreatedAt,
 			UpdatedAt: myChirp.UpdatedAt,
 			Body: myChirp.Body,
-			User_ID: params.UserID,//myChirp.User_ID,
+			User_ID: myChirp.UserID,//myChirp.User_ID, //params.UserID, //userUUID
 		},
     })
 	
@@ -202,12 +216,14 @@ func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 	type email struct {
 		Password string `json:"password"`
 		Email string `json:"email"`
+		ExpiresInSeconds time.Duration `json:"expires_in_seconds"`//optional //int
 	}
 	type user struct {
 		ID        uuid.UUID `json:"id"`
 		CreatedAt time.Time `json:"created_at"`
 		UpdatedAt time.Time `json:"updated_at"`
 		Email     string    `json:"email"`
+		Token     string    `json:"token"`
 	}
 	type response struct {
 		user
@@ -221,6 +237,14 @@ func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	params := email{}
 	err = json.Unmarshal(dat, &params)
+	if params.ExpiresInSeconds != 0 {
+		if params.ExpiresInSeconds > time.Hour {//1hour
+			params.ExpiresInSeconds = time.Hour
+		}
+	}else{
+		params.ExpiresInSeconds = time.Hour
+	}
+
 	oneUser, err := cfg.db.GetOneUser(r.Context(), params.Email)
 	if err != nil {
 		respondWithError(w, 401, "Unauthorized")
@@ -228,16 +252,24 @@ func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	passCheck, err := auth.CheckPasswordHash(params.Password, oneUser.HashedPassword)
 	if passCheck {
+		//create token
+		token, err := auth.MakeJWT(oneUser.ID, cfg.secret, params.ExpiresInSeconds)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "couldn't create token")
+			return
+		}
+
 		respondWithJSON(w, http.StatusOK, response{//201
 		user: user{
 			ID: oneUser.ID,
 			CreatedAt: oneUser.CreatedAt,
 			UpdatedAt: oneUser.UpdatedAt,
 			Email: oneUser.Email,
+			Token: token,
 		},
     	})
 	}else{
-		respondWithError(w, 401, "Unauthorized")
+		respondWithError(w, http.StatusUnauthorized, "Unauthorized")//401
 		return
 	}
 }
@@ -305,11 +337,13 @@ func main() {
 	dbQueries := database.New(dbConn)
 
 	plat := os.Getenv("PLATFORM")
+	secr := os.Getenv("JWT_SECRET")
 
 	apiCfg := apiConfig{
 		fileserverHits: atomic.Int32{},
 		db: dbQueries,
 		platform: plat,
+		secret: secr,
 	}
 
 	myServeMux := http.NewServeMux()
