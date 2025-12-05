@@ -5,11 +5,13 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"time"
-	"log"
+	//"log"
 	"errors"
 	"net/http"
 	"strings"
 	"fmt"
+	"crypto/rand"
+	"encoding/hex"
 )
 
 func HashPassword(password string) (string, error) {
@@ -43,10 +45,11 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (str
 	if err != nil {
 		return "error signing string", err
 	}
-	return ss, err
+	return ss, nil
 }
 
 func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
+	/*
 	if tokenString == "" {
 		return uuid.Nil, errors.New("empty token string")
 	}
@@ -80,6 +83,35 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 		return uuid.Nil, fmt.Errorf("invalid userID: %w", err)
 	}
 	return id, nil
+	*/
+	claimsStruct := jwt.RegisteredClaims{}
+	token, err := jwt.ParseWithClaims(
+		tokenString,
+		&claimsStruct,
+		func(token *jwt.Token) (interface{}, error) { return []byte(tokenSecret), nil },
+	)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	userIDString, err := token.Claims.GetSubject()
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	issuer, err := token.Claims.GetIssuer()
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if issuer != string("chirpy-access") {
+		return uuid.Nil, errors.New("invalid issuer")
+	}
+
+	id, err := uuid.Parse(userIDString)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("invalid user ID: %w", err)
+	}
+	return id, nil
 }
 
 func GetBearerToken(headers http.Header) (string, error) {
@@ -87,7 +119,26 @@ func GetBearerToken(headers http.Header) (string, error) {
 	if tokenStr == "" {
 		return "recieved empty token string", fmt.Errorf("empty token string")
 	}
+	/*
 	tokenStr = strings.Trim(tokenStr, "Bearer")
 	tokenStr = strings.TrimSpace(tokenStr)
 	return tokenStr, nil
+	*/
+	splitAuth := strings.Split(tokenStr, " ")//TEMP
+	if len(splitAuth) < 2 || splitAuth[0] != "Bearer" {//TEMP
+		return "", errors.New("malformed authorization header")//TEMP
+	}//TEMP
+	return splitAuth[1], nil//TEMP
+}
+
+
+func MakeRefreshToken() (string, error) {
+	//rand.Read to generate 32 bytes (256 bits) of random data from the crypto/rand package (math/rand's Read function is deprecated).
+	//hex.EncodeToString to convert the random data to a hex string
+	randBytes := make([]byte, 32)
+	_, err := rand.Read(randBytes)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(randBytes), nil
 }
