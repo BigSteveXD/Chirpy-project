@@ -385,7 +385,6 @@ func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request, chirpID s
     })
 }
 
-
 func (cfg *apiConfig) putUsers(w http.ResponseWriter, r *http.Request) {
 	//get access token
 	bearerString, err := auth.GetBearerToken(r.Header)
@@ -452,6 +451,47 @@ func (cfg *apiConfig) putUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 
+
+func (cfg *apiConfig) deleteChirp(w http.ResponseWriter, r *http.Request, chirpID string) {
+	//authenticate token
+	bearerString, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "couldn't find JWT")//401
+		return
+	}
+	userUUID, err := auth.ValidateJWT(bearerString, cfg.secret)//tokenString, tokenSecret
+	if err != nil {
+		respondWithError(w, 401, "couldn't validate JWT")
+		return
+	}
+
+	//parse chirp id from string
+	temp, err := uuid.Parse(chirpID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "failed to parse uuid from string")
+		return
+	}
+	//check if chirp exists
+	oneChirp, err := cfg.db.GetOneChirp(r.Context(), temp)
+	if err != nil {
+		respondWithError(w, 404, "failed to get chirp")
+		return
+	}
+
+	//check if user is author of chirp
+	if oneChirp.UserID != userUUID {
+		respondWithError(w, 403, "author of chirp and user don't match")
+		return
+	}
+
+	err = cfg.db.DeleteChirp(r.Context(), oneChirp.ID)
+	if err != nil {
+		respondWithError(w, 400, "couldn't delete chirp")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)//204
+}
+
 func main() {
 	godotenv.Load()//if empty default loads .env from current path
 	dbURL := os.Getenv("DB_URL")
@@ -495,6 +535,11 @@ func main() {
 	})
 
 	myServeMux.HandleFunc("PUT /api/users", http.HandlerFunc(apiCfg.putUsers))
+
+	myServeMux.HandleFunc("DELETE /api/chirps/{chirpID}", func(w http.ResponseWriter, r *http.Request){
+		id := r.PathValue("chirpID")
+		apiCfg.deleteChirp(w, r, id)
+	})
 
 	//readiness endpoint
 	myServeMux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request){
