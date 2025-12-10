@@ -386,6 +386,72 @@ func (cfg *apiConfig) getChirp(w http.ResponseWriter, r *http.Request, chirpID s
 }
 
 
+func (cfg *apiConfig) putUsers(w http.ResponseWriter, r *http.Request) {
+	//get access token
+	bearerString, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "couldn't find JWT")//401
+		return
+	}
+	userUUID, err := auth.ValidateJWT(bearerString, cfg.secret)//tokenString, tokenSecret
+	if err != nil {
+		respondWithError(w, 401, "couldn't validate JWT")
+		return
+	}
+
+	//get email and password
+	type email struct {
+		Password string `json:"password"`
+		Email string `json:"email"`
+	}
+	defer r.Body.Close()
+	dat, err := io.ReadAll(r.Body)
+	if err != nil {
+		respondWithError(w, 500, "couldn't read request")
+		return
+	}
+	params := email{}
+	err = json.Unmarshal(dat, &params)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "couldn't unmarshal params")
+		return
+	}
+
+	hashPass, err := auth.HashPassword(params.Password)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "couldn't hash password")
+		return
+	}
+
+	//update password and email for authenticated user in database
+	type user struct {
+		ID        uuid.UUID `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+		Email     string    `json:"email"`
+	}
+	type response struct {
+		user
+	}
+	//updated_at, email, hashed_password, id
+	cfg.db.UpdateUser(r.Context(), database.UpdateUserParams{time.Now(), params.Email, hashPass, userUUID})
+
+	oneUser, err := cfg.db.GetOneUser(r.Context(), params.Email)
+	if err != nil {
+		respondWithError(w, 401, "Unauthorized")
+		return
+	}
+	respondWithJSON(w, 200, response{
+		user: user{
+			ID: oneUser.ID,
+			CreatedAt: oneUser.CreatedAt,
+			UpdatedAt: oneUser.UpdatedAt,
+			Email: oneUser.Email,
+		},
+    })
+}
+
+
 func main() {
 	godotenv.Load()//if empty default loads .env from current path
 	dbURL := os.Getenv("DB_URL")
@@ -427,6 +493,8 @@ func main() {
 		id := r.PathValue("chirpID")
 		apiCfg.getChirp(w, r, id)
 	})
+
+	myServeMux.HandleFunc("PUT /api/users", http.HandlerFunc(apiCfg.putUsers))
 
 	//readiness endpoint
 	myServeMux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request){
