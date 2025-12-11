@@ -17,6 +17,8 @@ import (
     "io"
 	"strings"
 	"errors"
+	"sort"
+	//"slices"
 )
 
 type apiConfig struct {
@@ -343,8 +345,12 @@ func (cfg *apiConfig) handleRevoke(w http.ResponseWriter, r *http.Request) {
 type response struct {
 	responseBody
 }
-func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request, author_id string) {
+func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request, author_id string, mySort string) {
 	var outputs []response
+
+	if mySort == "" {
+		mySort = "asc"
+	}
 
 	if author_id == "" {
 		//get all chirps
@@ -352,6 +358,7 @@ func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request, author_i
 		if err != nil {
 			respondWithError(w, 500, "failed to get chirps")//500 server error response
 		}
+
 		for _, chirp := range allChirps{
 			outputs = append(outputs, response{
 				responseBody: responseBody{
@@ -374,6 +381,7 @@ func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request, author_i
 		if err != nil {
 			respondWithError(w, 500, "failed to get chirps")//500 server error response
 		}
+
 		for _, chirp := range userChirps{
 			outputs = append(outputs, response{
 				responseBody: responseBody{
@@ -385,6 +393,13 @@ func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request, author_i
 				},
     		})
 		}
+	}
+	
+	if mySort == "desc" {
+		//slices.Reverse(outputs)
+		sort.Slice(outputs, func(i, j int) bool {
+			return outputs[i].CreatedAt.After(outputs[j].CreatedAt)
+		})
 	}
 	
 	temp, err := json.Marshal(outputs)
@@ -615,7 +630,8 @@ func main() {
 		s := r.URL.Query().Get("author_id")
 		//s is a string that contains the value of the author_id query parameter
 		//if it exists, or an empty string if it doesn't
-		apiCfg.getChirps(w, r, s)
+		sort := r.URL.Query().Get("sort")
+		apiCfg.getChirps(w, r, s, sort)
 	})
 	myServeMux.HandleFunc("GET /api/chirps/{chirpID}", func(w http.ResponseWriter, r *http.Request){
 		id := r.PathValue("chirpID")
