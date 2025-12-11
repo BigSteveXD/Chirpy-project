@@ -13,7 +13,7 @@ import (
 
 const upgradeUser = `-- name: UpgradeUser :exec
 UPDATE users
-SET is_chirpy_red = TRUE WHERE id = $1
+SET is_chirpy_red = TRUE, updated_at = NOW() WHERE id = $1
 `
 
 func (q *Queries) UpgradeUser(ctx context.Context, id uuid.UUID) error {

@@ -343,25 +343,50 @@ func (cfg *apiConfig) handleRevoke(w http.ResponseWriter, r *http.Request) {
 type response struct {
 	responseBody
 }
-func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
+func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request, author_id string) {
 	var outputs []response
 
-	allChirps, err := cfg.db.GetAllChirps(r.Context())
-	if err != nil {
-		respondWithError(w, 500, "failed to get chirps")//500 server error response
+	if author_id == "" {
+		//get all chirps
+		allChirps, err := cfg.db.GetAllChirps(r.Context())
+		if err != nil {
+			respondWithError(w, 500, "failed to get chirps")//500 server error response
+		}
+		for _, chirp := range allChirps{
+			outputs = append(outputs, response{
+				responseBody: responseBody{
+					ID: chirp.ID,
+					CreatedAt: chirp.CreatedAt,
+					UpdatedAt: chirp.UpdatedAt,
+					Body: chirp.Body,
+					User_ID: chirp.UserID,
+				},
+    		})
+		}
+	}else{
+		//get user's chirps
+		userUUID, err := uuid.Parse(author_id)
+		if err != nil {
+			respondWithError(w, 404, "failed to parse uuid from string")
+			return
+		}
+		userChirps, err := cfg.db.GetUserChirps(r.Context(), userUUID)
+		if err != nil {
+			respondWithError(w, 500, "failed to get chirps")//500 server error response
+		}
+		for _, chirp := range userChirps{
+			outputs = append(outputs, response{
+				responseBody: responseBody{
+					ID: chirp.ID,
+					CreatedAt: chirp.CreatedAt,
+					UpdatedAt: chirp.UpdatedAt,
+					Body: chirp.Body,
+					User_ID: chirp.UserID,
+				},
+    		})
+		}
 	}
-	for _, chirp := range allChirps{
-		outputs = append(outputs, response{
-			responseBody: responseBody{
-				ID: chirp.ID,
-				CreatedAt: chirp.CreatedAt,
-				UpdatedAt: chirp.UpdatedAt,
-				Body: chirp.Body,
-				User_ID: chirp.UserID,
-			},
-    	})
-	}
-
+	
 	temp, err := json.Marshal(outputs)
 	if err != nil {
 		respondWithError(w, 500, "couldn't marshal payload")
@@ -586,7 +611,12 @@ func main() {
 	myServeMux.Handle("POST /api/refresh", http.HandlerFunc(apiCfg.handleRefresh))
 	myServeMux.Handle("POST /api/revoke", http.HandlerFunc(apiCfg.handleRevoke))
 
-	myServeMux.Handle("GET /api/chirps", http.HandlerFunc(apiCfg.getChirps))
+	myServeMux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request){
+		s := r.URL.Query().Get("author_id")
+		//s is a string that contains the value of the author_id query parameter
+		//if it exists, or an empty string if it doesn't
+		apiCfg.getChirps(w, r, s)
+	})
 	myServeMux.HandleFunc("GET /api/chirps/{chirpID}", func(w http.ResponseWriter, r *http.Request){
 		id := r.PathValue("chirpID")
 		apiCfg.getChirp(w, r, id)
