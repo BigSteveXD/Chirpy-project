@@ -24,6 +24,7 @@ type apiConfig struct {
 	db *database.Queries
 	platform string
 	secret string
+	polka string
 }
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -509,9 +510,20 @@ func (cfg *apiConfig) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		Data         responseBody `json:"data"`
 	}
 
+	apiKey, err := auth.GetAPIKey(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "couldn't find API key")//401
+		return
+	}
+
+	if apiKey != cfg.polka {
+		respondWithError(w, 401, "api key doesn't match")
+		return
+	}
+
 	decoder := json.NewDecoder(r.Body)
 	params := response{}
-	err := decoder.Decode(&params)
+	err = decoder.Decode(&params)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "couldn't decode parameters")
 		return
@@ -547,12 +559,14 @@ func main() {
 
 	plat := os.Getenv("PLATFORM")
 	secr := os.Getenv("JWT_SECRET")
+	polk := os.Getenv("POLKA_KEY")
 
 	apiCfg := apiConfig{
 		fileserverHits: atomic.Int32{},
 		db: dbQueries,
 		platform: plat,
 		secret: secr,
+		polka: polk,
 	}
 
 	myServeMux := http.NewServeMux()
