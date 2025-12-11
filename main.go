@@ -16,6 +16,7 @@ import (
     "encoding/json"
     "io"
 	"strings"
+	"errors"
 )
 
 type apiConfig struct {
@@ -162,10 +163,12 @@ func (cfg *apiConfig) handleUsers(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"email"`
 	}
 	type user struct {
-		ID        uuid.UUID `json:"id"`
-		CreatedAt time.Time `json:"created_at"`
-		UpdatedAt time.Time `json:"updated_at"`
-		Email     string    `json:"email"`
+		ID          uuid.UUID `json:"id"`
+		CreatedAt   time.Time `json:"created_at"`
+		UpdatedAt   time.Time `json:"updated_at"`
+		Email       string    `json:"email"`
+		Password    string    `json:"-"`
+		IsChirpyRed bool      `json:"is_chirpy_red"`
 	}
 	type response struct {
 		user
@@ -207,6 +210,7 @@ func (cfg *apiConfig) handleUsers(w http.ResponseWriter, r *http.Request) {
 			CreatedAt: myUser.CreatedAt,
 			UpdatedAt: myUser.UpdatedAt,
 			Email: myUser.Email,
+			IsChirpyRed: myUser.IsChirpyRed,
 		},
     })
 }
@@ -220,6 +224,7 @@ func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 		CreatedAt time.Time `json:"created_at"`
 		UpdatedAt time.Time `json:"updated_at"`
 		Email     string    `json:"email"`
+		IsChirpyRed bool `json:"is_chirpy_red"`
 	}
 	type response struct {
 		user
@@ -268,6 +273,7 @@ func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 			UpdatedAt: oneUser.UpdatedAt,
 			Email: oneUser.Email,
 			//revoke is null
+			IsChirpyRed: oneUser.IsChirpyRed,
 		},
 		Token: accessToken,
 		RefreshToken: refreshToken,
@@ -428,6 +434,7 @@ func (cfg *apiConfig) putUsers(w http.ResponseWriter, r *http.Request) {
 		CreatedAt time.Time `json:"created_at"`
 		UpdatedAt time.Time `json:"updated_at"`
 		Email     string    `json:"email"`
+		IsChirpyRed bool `json:"is_chirpy_red"`
 	}
 	type response struct {
 		user
@@ -446,11 +453,10 @@ func (cfg *apiConfig) putUsers(w http.ResponseWriter, r *http.Request) {
 			CreatedAt: oneUser.CreatedAt,
 			UpdatedAt: oneUser.UpdatedAt,
 			Email: oneUser.Email,
+			IsChirpyRed: oneUser.IsChirpyRed,
 		},
     })
 }
-
-
 
 func (cfg *apiConfig) deleteChirp(w http.ResponseWriter, r *http.Request, chirpID string) {
 	//authenticate token
@@ -491,6 +497,44 @@ func (cfg *apiConfig) deleteChirp(w http.ResponseWriter, r *http.Request, chirpI
 	}
 	w.WriteHeader(http.StatusNoContent)//204
 }
+
+func (cfg *apiConfig) handleWebhook(w http.ResponseWriter, r *http.Request) {
+	//Polka uses the response code to know whether or not the webhook was received successfully. 
+	//If the response code is anything other than 2XX, they'll retry the request.
+	type responseBody struct {
+		UserID        uuid.UUID `json:"user_id"`
+	}
+	type response struct {
+		Event        string `json:"event"`//bool
+		Data         responseBody `json:"data"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := response{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "couldn't decode parameters")
+		return
+	}
+
+	if params.Event != "user.upgraded" {
+		respondWithError(w, 204, "user is not upgraded")
+		return
+	}
+
+	err = cfg.db.UpgradeUser(r.Context(), params.Data.UserID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			respondWithError(w, 404, "user can't be found")//http.StatusNotFound
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "couldn't update user")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)//204
+}
+
 
 func main() {
 	godotenv.Load()//if empty default loads .env from current path
@@ -540,6 +584,8 @@ func main() {
 		id := r.PathValue("chirpID")
 		apiCfg.deleteChirp(w, r, id)
 	})
+
+	myServeMux.Handle("POST /api/polka/webhooks", http.HandlerFunc(apiCfg.handleWebhook))
 
 	//readiness endpoint
 	myServeMux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request){
